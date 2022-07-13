@@ -4,11 +4,11 @@
 *  of this assignment has been copied manually or electronically from any other source 
 *  (including 3rd party web sites) or distributed to other students.
 * 
-*  Name: ______________________ Student ID: ______________ Date: ________________
+*  Name: ____Pratham__________________ Student ID: __132970211____________ Date: __12-07-22______________
 *
-*  Heroku App URL: ___________________________________________________________
+*  Heroku App URL: _______https://protected-eyrie-28460.herokuapp.com____________________________________________________
 * 
-*  GitHub Repository URL: ______________________________________________________
+*  GitHub Repository URL: __________https://github.com/prathamvirdi/web322-app____________________________________________
 *
 ********************************************************************************/ 
 
