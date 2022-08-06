@@ -7,8 +7,16 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "node server.js"
   },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/prathamvirdi/web322-app.git"
+  },
   "author": "Pratham",
   "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/prathamvirdi/web322-app/issues"
+  },
+  "homepage": "https://github.com/prathamvirdi/web322-app#readme",
   "dependencies": {
     "express": "^4.18.1"
   }

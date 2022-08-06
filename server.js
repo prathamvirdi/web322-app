@@ -1,229 +1,416 @@
 /*********************************************************************************
-*  WEB322 – Assignment 05
+*  WEB322 – Assignment 06
 *  I declare that this assignment is my own work in accordance with Seneca  Academic Policy.  No part of this
 *  assignment has been copied manually or electronically from any other source (including web sites) or 
 *  distributed to other students.
 * 
-*  Name: _____Pratham_________________ Student ID: __132970211____________ Date: ___25-07-22_____________
+*  Name: ____Pratham__________________ Student ID: __132970211____________ Date: ___05-08-22_____________
 *
-*  Heroku App URL: ______________https://vast-peak-26750.herokuapp.com/_____________________________________________
+*  Heroku App URL: _________https://nameless-refuge-08326.herokuapp.com/__________________________________________________
 *
-*  GitHub Repository URL: ________https://github.com/prathamvirdi/web322-app______________________________________________
+*  GitHub Repository URL: _________https://github.com/prathamvirdi/web322-app_____________________________________________
 *
 ********************************************************************************/ 
 
-const { rejects } = require("assert");
-const { resolve } = require("path");
-const Sequelize = require('sequelize');
-const { gte } = Sequelize.Op;
+const express = require('express');
+const blogData = require("./blog-service");
+const authData = require("./auth-service.js");
+const multer = require("multer");
+const upload = multer();
+const cloudinary = require('cloudinary').v2;
+const streamifier = require('streamifier');
+const exphbs = require("express-handlebars");
+const path = require("path");
+const stripJs = require('strip-js');
+const clientSessions = require("client-sessions");
+const app = express();
+const HTTP_PORT = process.env.PORT || 8080;
 
-var sequelize = new Sequelize('d5g6the5thtbgu', 'qqwmbqxoxorakn', 'cf68720c49500f61490d9ec4ac99afe78bc479b22b01487c2778ba8ccb219625', {
-    host: 'ec2-54-159-22-90.compute-1.amazonaws.com',
-    dialect: 'postgres',
-    port: 5432,
-    dialectOptions: {
-        ssl: { rejectUnauthorized: false }
-    },
-    query: { raw: true }
+cloudinary.config({
+    cloud_name: 'db5tryp2f',
+    api_key: '145169691935588',
+    api_secret: '3-aZKx8-gjvBNQyLaO6quzwQyKE',
+    secure: true
 });
+app.use(clientSessions({
+    cookieName: "session", 
+    secret: "web322app_final", 
+    duration: 2 * 60 * 1000, // duration of the session in milliseconds (2 minutes)
+    activeDuration: 1000 * 60 // the session will be extended by this many ms each request (1 minute)
+  }));
+  app.use(function(req, res, next) {
+    res.locals.session = req.session;
+    next();
+   });
 
-var Post = sequelize.define('Post', {
-    body: Sequelize.TEXT,
-    title: Sequelize.STRING,
-    postDate: Sequelize.DATE,
-    featureImage: Sequelize.STRING,
-    published: Sequelize.BOOLEAN
-});
-var Category = sequelize.define('Category', {
-    category: Sequelize.STRING
-});
+   function ensureLogin(req,res,next){
+    if(!req.session.user){
+        res.redirect("/login");
+    }else{
+        next();
+    }
+}   
 
-Post.belongsTo(Category, {foreignKey: 'category'});
-
-
-//Load data to array
-module.exports.initialize = () => {
-    return new Promise((resolve,reject) => {
-        sequelize.sync()
-            .then(resolve('database synced successfully'))
-            .catch(reject('unable to sync the database'));
-    })
-}
-
-//get Post and Category Array
-module.exports.getAllPosts = () => {
-    return new Promise((resolve, reject) => {
-		Post.findAll()
-            .then(data => {
-                resolve(data);
-            })
-            .catch(err => {
-                reject("no results returned");
-            });
-	});
-}
-
-module.exports.getPublishedPosts = () => {
-    return new Promise((resolve, reject) => {
-		Post.findAll({
-                where: {
-                    published: true
-                }
-             })
-            .then(data => {
-                resolve(data);
-            })
-            .catch(err => {
-                reject("no results returned");
-            });
-	});
-}
-
-module.exports.getCategories = () => {
-    return new Promise((resolve, reject) => {
-		Category.findAll()
-            .then(data => {
-                resolve(data);
-            })
-            .catch(err => {
-                reject("no results returned");
-            });
-	});
-}
-
-//Add a new post
-module.exports.addPost = (postData) => {
-    return new Promise((resolve, reject) => {
-        postData.published = (postData.published) ? true : false;
-        for (prop in postData) {
-            if(postData[prop] == ""){
-                postData[prop] = null;
+app.engine(".hbs", exphbs.engine({
+    extname: ".hbs",
+    helpers: {
+        formatDate: function(dateObj){
+            let year = dateObj.getFullYear();
+            let month = (dateObj.getMonth() + 1).toString();
+            let day = dateObj.getDate().toString();
+            return `${year}-${month.padStart(2, '0')}-${day.padStart(2,'0')}`;
+           },
+        navLink: function(url, options){
+            return '<li' + 
+                ((url == app.locals.activeRoute) ? ' class="active" ' : '') + 
+                '><a href="' + url + '">' + options.fn(this) + '</a></li>';
+        },
+        equal: function (lvalue, rvalue, options) {
+            if (arguments.length < 3)
+                throw new Error("Handlebars Helper equal needs 2 parameters");
+            if (lvalue != rvalue) {
+                return options.inverse(this);
+            } else {
+                return options.fn(this);
             }
+        },
+        safeHTML: function(context){
+            return stripJs(context);
         }
-        postData.postDate = new Date();
-        Post.create({
-            body: postData.body,
-            title: postData.title,
-            postDate: postData.postDate,
-            featureImage: postData.featureImage,
-            published: postData.published,
-            category: postData.category
-        }).then(function (post) {
-            resolve(post)
-        }).catch(function(){
-            reject("unable to create post");
+    }
+}));
+
+app.set('view engine', '.hbs');
+
+app.use(express.static('public'));
+app.use(express.urlencoded({extended: true}));
+
+app.use(function(req,res,next){
+    let route = req.path.substring(1);
+    app.locals.activeRoute = (route == "/") ? "/" : "/" + route.replace(/\/(.*)/, "");
+    app.locals.viewingCategory = req.query.category;
+    next();
+});
+
+app.get('/', (req, res) => {
+    res.redirect("/blog");
+});
+
+app.get('/about', (req, res) => {
+    res.render("about");
+});
+
+app.get('/blog', async (req, res) => {
+
+    // Declare an object to store properties for the view
+    let viewData = {};
+
+    try{
+
+        // declare empty array to hold "post" objects
+        let posts = [];
+
+        // if there's a "category" query, filter the returned posts by category
+        if(req.query.category){
+            // Obtain the published "posts" by category
+            posts = await blogData.getPublishedPostsByCategory(req.query.category);
+        }else{
+            // Obtain the published "posts"
+            posts = await blogData.getPublishedPosts();
+        }
+
+        // sort the published posts by postDate
+        posts.sort((a,b) => new Date(b.postDate) - new Date(a.postDate));
+
+        // get the latest post from the front of the list (element 0)
+        let post = posts[0]; 
+
+        // store the "posts" and "post" data in the viewData object (to be passed to the view)
+        viewData.posts = posts;
+        viewData.post = post;
+
+    }catch(err){
+        viewData.message = "no results";
+    }
+
+    try{
+        // Obtain the full list of "categories"
+        let categories = await blogData.getCategories();
+
+        // store the "categories" data in the viewData object (to be passed to the view)
+        viewData.categories = categories;
+    }catch(err){
+        viewData.categoriesMessage = "no results"
+    }
+
+    // render the "blog" view with all of the data (viewData)
+    res.render("blog", {data: viewData})
+
+});
+
+app.get('/posts',ensureLogin, (req, res) => {
+
+    let queryPromise = null;
+
+    if (req.query.category) {
+        queryPromise = blogData.getPostsByCategory(req.query.category);
+        queryPromise.then((data) => {
+            if (data.length > 0)
+            {
+                res.render("posts", { posts: data });
+            }
+            else
+            {
+                res.render("posts", { message: "no results" });
+            }
+        }).catch((err) => {
+            res.render("posts", { message: err });
         });
-    });
+    } else if (req.query.minDate) {
+        queryPromise = blogData.getPostsByMinDate(req.query.minDate);
+        queryPromise.then((data) => {
+            if (data.length > 0)
+            {
+                res.render("posts", { posts: data });
+            }
+            else
+            {
+                res.render("posts", { message: "no results" });
+            }
+        }).catch((err) => {
+            res.render("posts", { message: err });
+        })
+    } else {
+        queryPromise = blogData.getAllPosts();
+        queryPromise.then((data) => {
+            if (data.length > 0)
+            {
+                res.render("posts", { posts: data });
+            }
+            else
+            {
+                res.render("posts", { message: "no results" });
+            }
+        }).catch((err) => {
+            res.render("posts", { message: err });
+        })
+    }
+
     
-}
 
-//Query
-module.exports.getPostsByCategory = (category) => {
-    return new Promise((resolve, reject) => {
-		Post.findAll({
-                where: {
-                    category: category
-                }
-             })
-            .then(data => {
-                resolve(data);
-            })
-            .catch(err => {
-                reject("no results returned");
+});
+
+app.post("/posts/add",ensureLogin, upload.single("featureImage"), (req,res)=>{
+
+    if(req.file){
+        let streamUpload = (req) => {
+            return new Promise((resolve, reject) => {
+                let stream = cloudinary.uploader.upload_stream(
+                    (error, result) => {
+                        if (result) {
+                            resolve(result);
+                        } else {
+                            reject(error);
+                        }
+                    }
+                );
+    
+                streamifier.createReadStream(req.file.buffer).pipe(stream);
             });
-	});
-}
-
-module.exports.getPostById = (id) => {
-    return new Promise((resolve, reject) => {
-		Post.findAll({
-                where: {
-                    id: id
-                }
-             })
-            .then(data => {
-                resolve(data[0]);
-            })
-            .catch(err => {
-                reject("no results returned");
-            });
-	});
-}
-
-module.exports.getPostsByMinDate = (minDateStr) => {
-    return new Promise((resolve, reject) => {
-		Post.findAll({
-            where: {
-                postDate: {
-                    [gte]: new Date(minDateStr)
-                }
-             }
-            })    
-            .then(data => {
-                resolve(data);
-            })
-            .catch(err => {
-                reject("no results returned");
-            });
-	});
-}
-
-module.exports.getPublishedPostsByCategory = (category) => {
-    return new Promise((resolve, reject) => {
-		Post.findAll({
-                where: {
-                    published: true,
-                    category: category
-                }
-             })
-            .then(data => {
-                resolve(data);
-            })
-            .catch(err => {
-                reject("no results returned");
-            });
-	});
-}
-
-module.exports.addCategory = (categoryData) => {
-    return new Promise((resolve,reject) => {
-        for (var i in categoryData) {
-            if (categoryData[i] == "") { categoryData[i] = null; }
+        };
+    
+        async function upload(req) {
+            let result = await streamUpload(req);
+            console.log(result);
+            return result;
         }
-        
-        Category.create(categoryData) 
-        .then(() => {
-            resolve("created Category successfully!!!");
-        }).catch(err => {
-            reject("unable to create Category");
+    
+        upload(req).then((uploaded)=>{
+            processPost(uploaded.url);
         });
+    }else{
+        processPost("");
+    }
+
+    function processPost(imageUrl){
+        req.body.featureImage = imageUrl;
+
+        blogData.addPost(req.body).then(post=>{
+            res.redirect("/posts");
+        }).catch(err=>{
+            res.status(500).send(err);
+        })
+    }   
+});
+
+app.get("/posts/add", ensureLogin,(req, res) => {
+    blogData.getCategories().then(data=>{
+        res.render("addPost", {categories: data});
+    }).catch(err=>{
+        res.render("addPost", {categories: []});
+    });
+});
+
+
+app.get('/post/:id',ensureLogin, (req,res)=>{
+    blogData.getPostById(req.params.id).then(data=>{
+        res.json(data);
+    }).catch(err=>{
+        res.json({message: err});
+    });
+});
+
+app.get('/blog/:id', async (req, res) => {
+
+    // Declare an object to store properties for the view
+    let viewData = {};
+
+    try{
+
+        // declare empty array to hold "post" objects
+        let posts = [];
+
+        // if there's a "category" query, filter the returned posts by category
+        if(req.query.category){
+            // Obtain the published "posts" by category
+            posts = await blogData.getPublishedPostsByCategory(req.query.category);
+        }else{
+            // Obtain the published "posts"
+            posts = await blogData.getPublishedPosts();
+        }
+
+        // sort the published posts by postDate
+        posts.sort((a,b) => new Date(b.postDate) - new Date(a.postDate));
+
+        // store the "posts" and "post" data in the viewData object (to be passed to the view)
+        viewData.posts = posts;
+
+    }catch(err){
+        viewData.message = "no results";
+    }
+
+    try{
+        // Obtain the post by "id"
+        viewData.post = await blogData.getPostById(req.params.id);
+    }catch(err){
+        viewData.message = "no results"; 
+    }
+
+    try{
+        // Obtain the full list of "categories"
+        let categories = await blogData.getCategories();
+
+        // store the "categories" data in the viewData object (to be passed to the view)
+        viewData.categories = categories;
+    }catch(err){
+        viewData.categoriesMessage = "no results"
+    }
+
+    // render the "blog" view with all of the data (viewData)
+    res.render("blog", {data: viewData})
+});
+
+app.get("/categories",ensureLogin, (req, res) => {
+    blogData.getCategories().then((data) => {
+        if (data.length > 0)
+        {
+            res.render("categories", { categories: data });
+        }
+        else
+        {
+            res.render("categories", { message: "no results" });
+        }
+    }).catch((err) => {
+        res.render("categories", { message: err });
+    });
+});
+
+app.get("/categories/add",ensureLogin,(req,res)=>{
+    res.render("addCategory")
+  });
+
+  app.post("/categories/add",ensureLogin, (req,res)=>{
+    blogData.addCategory(req.body).then((data)=>{
+        res.redirect("/categories");
+    });
+});
+
+  app.get("/categories/delete/:id", ensureLogin,(req,res)=>{
+    blogData.deleteCategoryById(req.params.id).then((data)=>{
+        res.redirect("/categories");
+    }).catch(err=>{
+        res.status(500).send("Unable to Remove Category / Category Not Found");
+    });
+});
+
+app.get("/posts/delete/:id",ensureLogin, (req,res)=>{
+    blogData.deletePostById(req.params.id).then((data)=>{
+        res.redirect("/posts");
+    }).catch(err=>{
+        res.status(500).send("Unable to Remove Post / Post Not Found");
+    });
+});
+
+app.get('/login',(req,res)=>{
+    res.render("login");
+});
+
+app.get('/register',(req,res)=>{
+    res.render("register");
+});
+
+app.post('/register',(req,res)=>{
+    authData.registerUser(req.body)
+    .then((user)=>{
+        res.render('register',{successMessage: "User created"});
     })
-}
+    .catch((err)=>{
+        res.render('register',{errorMessage: err, userName: req.body.userName});
+    })
+});
 
-module.exports.deleteCategoryById = (id) => {
-    return new Promise((resolve, reject) => {
-        Category.destroy({
-                where: {
-                        id: id
-                }
-        }).then(() => {
-                resolve("deleted");
-        }).catch(err => {
-                reject("Error!!!");
-        });
-    });
-}
+app.post('/login',(req,res)=>{
+    req.body.userAgent = req.get('User-Agent');
+    authData.checkUser(req.body)
+    .then((user)=>{
+        req.session.user ={
+            userName: user.userName,
+            email: user.email,
+            loginHistory: user.loginHistory
+        }
+        res.redirect('/posts');
+    })
+    .catch((err)=>{
+        res.render("login", {errorMessage: err, userName: req.body.userName});
+    })
+});
 
-module.exports.deletePostById = (id) => {
-    return new Promise((resolve, reject) => {
-        Post.destroy({
-                where: {
-                        id: id
-                }
-        }).then(() => {
-                resolve("deleted");
-        }).catch(err => {
-                reject("Error!!!");
-        });
+app.get('/logout',(req,res)=>{
+    req.session.reset();
+    res.redirect("/");
+});
+
+app.get('/userHistory',(req,res)=>{
+    res.render("userHistory");
+});
+
+
+app.use((req, res) => {
+    res.status(404).render("404");
+})
+blogData.initialize()
+.then(authData.initialize).then(function(){
+    app.listen(HTTP_PORT, function(){
+    console.log("app listening on: " + HTTP_PORT)
     });
-}
+   }).catch(function(err){
+    console.log("unable to start server: " + err);
+   });
+   
+/*blogData.initialize().then(function() {
+    app.listen(HTTP_PORT, function() {
+        console.log('server listening on: ' + HTTP_PORT);
+    });
+}).catch(function(err)  {
+    console.log("unable to start server: "+ err);
+})*/
